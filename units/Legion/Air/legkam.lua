@@ -28,7 +28,7 @@ return {
 		maxpitch = 0.625,
 		maxrudder = 0.015,
 		maxslope = 10,
-		speed = 255.0,
+		speed = 230.0,
 		maxwaterdepth = 0,
 		nochasecategory = "VTOL",
 		objectname = "Units/legkam.s3o",
@@ -47,6 +47,7 @@ return {
 			model_author = "Protar",
 			normaltex = "unittextures/leg_normal.dds",
 			subfolder = "CorAircraft",
+			crashable = 0,
 		},
 		sfxtypes = {
 			explosiongenerators = {

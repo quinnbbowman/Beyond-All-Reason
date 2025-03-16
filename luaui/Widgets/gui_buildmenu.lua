@@ -55,7 +55,7 @@ local selectedCellZoom = 0.135 * zoomMult
 
 local bgpadding, activeAreaMargin
 local dlistGuishader, dlistBuildmenuBg, dlistBuildmenu, font2, cmdsCount
-local doUpdateClock, ordermenuHeight, advplayerlistPos, prevAdvplayerlistLeft
+local doUpdateClock, ordermenuHeight, prevAdvplayerlistLeft
 local cellPadding, iconPadding, cornerSize, cellInnerSize, cellSize, priceFontSize
 local activeCmd, selBuildQueueDefID
 local prevHoveredCellID, hoverDlist
@@ -102,11 +102,9 @@ local width = 0
 local height = 0
 local selectedBuilders = {}
 local selectedBuilderCount = 0
-local selectedFactories = {}
 local selectedFactoryCount = 0
 local cellRects = {}
 local cmds = {}
-local lastUpdate = os.clock() - 1
 local currentPage = 1
 local pages = 1
 local paginatorRects = {}
@@ -142,7 +140,6 @@ local function refreshUnitDefs()
 		end
 	end
 end
-refreshUnitDefs()
 
 local spIsUnitSelected = Spring.IsUnitSelected
 local spGetSelectedUnitsCount = Spring.GetSelectedUnitsCount
@@ -214,7 +211,6 @@ if success and mapinfo then
 	voidWater = mapinfo.voidwater
 end
 
-local minWaterUnitDepth = -11
 local showWaterUnits = false
 -- make them a disabled unit (instead of removing it entirely)
 if not showWaterUnits then
@@ -303,6 +299,8 @@ end
 local function clear()
 	dlistBuildmenu = gl.DeleteList(dlistBuildmenu)
 	dlistBuildmenuBg = gl.DeleteList(dlistBuildmenuBg)
+	hoverDlist = gl.DeleteList(hoverDlist)
+	prevHoveredCellID = nil
 end
 
 function widget:ViewResize()
@@ -336,7 +334,7 @@ function widget:ViewResize()
 		minColls = math_max(8, math_floor((width/vsx)*25))
 		maxColls = 30
 	else
-		posY = math_min(maxPosY, math_max(0.4615, (vsy - minimapHeight) / vsy) - (widgetSpaceMargin/vsy))
+		posY = math.clamp(((vsy - minimapHeight) / vsy) - (widgetSpaceMargin/vsy), 0.4615, maxPosY)
 		posY2 = math_floor(0.14 * ui_scale * vsy) / vsy
 		posY2 = posY2 + (widgetSpaceMargin/vsy)
 		posX = 0
@@ -403,13 +401,11 @@ function widget:Update(dt)
 		end
 		selectedBuilders = {}
 		selectedBuilderCount = 0
-		selectedFactories = {}
 		selectedFactoryCount = 0
 		if SelectedUnitsCount > 0 then
 			local sel = Spring.GetSelectedUnits()
 			for _, unitID in pairs(sel) do
 				if units.isFactory[spGetUnitDefID(unitID)] then
-					selectedFactories[unitID] = true
 					selectedFactoryCount = selectedFactoryCount + 1
 				end
 				if units.isBuilder[spGetUnitDefID(unitID)] then
@@ -450,6 +446,7 @@ function widget:Update(dt)
 			ordermenuHeight = oheight
 		end
 		if not prevAdvplayerlistLeft or advplayerlistLeft ~= prevAdvplayerlistLeft or not prevOrdermenuLeft or ordermenuLeft ~= prevOrdermenuLeft  or not prevOrdermenuHeight or ordermenuHeight ~= prevOrdermenuHeight then
+			prevAdvplayerlistLeft = advplayerlistLeft
 			widget:ViewResize()
 		end
 
@@ -493,7 +490,6 @@ local function drawCell(cellRectID, usedZoom, cellColor, disabled, colls)
 		{units.unitMetalCost[uDefID], units.unitEnergyCost[uDefID]},
 		tonumber(cmds[cellRectID].params[1])
 	)
-
 
 	-- colorize/highlight unit icon
 	if cellColor then
@@ -556,7 +552,7 @@ local function drawCell(cellRectID, usedZoom, cellColor, disabled, colls)
 		)
 	end
 
-	
+
 	local quotaNumber, builderID
 	for _, factoryID in ipairs(spGetSelectedUnits()) do
 		if WG.Quotas and WG.Quotas.getQuotas()[factoryID] and WG.Quotas.getQuotas()[factoryID][uDefID] then
@@ -770,8 +766,7 @@ function widget:DrawScreen()
 			if doUpdateClock and now >= doUpdateClock then
 				doUpdateClock = nil
 			end
-			lastUpdate = now
-			clear()
+			dlistBuildmenu = gl.DeleteList(dlistBuildmenu)
 			RefreshCommands()
 			doUpdate = nil
 		end
@@ -780,13 +775,11 @@ function widget:DrawScreen()
 		if WG['guishader'] and dlistGuishader then
 			WG['guishader'].InsertDlist(dlistGuishader, 'buildmenu')
 		end
+		if not dlistBuildmenuBg then
+			dlistBuildmenuBg = gl.CreateList(function() drawBuildmenuBg() end)
+		end
 		if not dlistBuildmenu then
-			dlistBuildmenuBg = gl.CreateList(function()
-				drawBuildmenuBg()
-			end)
-			dlistBuildmenu = gl.CreateList(function()
-				drawBuildmenu()
-			end)
+			dlistBuildmenu = gl.CreateList(function() drawBuildmenu() end)
 		end
 
 		local hovering = false
@@ -918,7 +911,9 @@ function widget:DrawScreen()
 									end
 
 									-- re-draw cell with hover zoom (and price shown)
+									font2:Begin()
 									drawCell(hoveredCellID, usedZoom, cellColor, units.unitRestricted[uDefID])
+									font2:End()
 
 									if unsetShowPrice then
 										showPrice = false
@@ -1034,7 +1029,7 @@ local function isOnQuotaBuildMode(targetDefID)
 	for _, unitID in ipairs(spGetSelectedUnits()) do
 		local uDefID = spGetUnitDefID(unitID)
 		if units.isFactory[uDefID] and table.contains(unitBuildOptions[uDefID], targetDefID) then
-			return WG.Quotas and WG.Quotas.isOnQuotaMode(unitID) 
+			return WG.Quotas and WG.Quotas.isOnQuotaMode(unitID)
 		end
 	end
 	return false
@@ -1245,6 +1240,8 @@ local function bindBuildUnits(widget)
 end
 
 function widget:Initialize()
+	refreshUnitDefs()
+
 	if widgetHandler:IsWidgetKnown("Grid menu") then
 		-- Grid menu needs to be disabled right now and before we recreate
 		-- WG['buildmenu'] since its Shutdown will destroy it.
@@ -1361,7 +1358,6 @@ end
 
 function widget:Shutdown()
 	clear()
-	hoverDlist = gl.DeleteList(hoverDlist)
 	if WG['guishader'] and dlistGuishader then
 		WG['guishader'].DeleteDlist('buildmenu')
 		dlistGuishader = nil

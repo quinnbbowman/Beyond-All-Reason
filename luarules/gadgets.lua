@@ -157,6 +157,7 @@ local callInLists = {
 	-- "UnitMoveFailed",
 	"StockpileChanged",
 
+	"ActiveCommandChanged",
 	"CommandNotify",
 
 	-- Feature CallIns
@@ -235,6 +236,8 @@ local callInLists = {
 	'DrawAlphaFeaturesLua',
 	'DrawShadowUnitsLua',
 	'DrawShadowFeaturesLua',
+
+	'FontsChanged',
 
 	"RecvFromSynced",
 
@@ -413,6 +416,11 @@ function gadgetHandler:LoadGadget(filename, overridevfsmode)
 	end
 	if err == false then -- note that all "normal" gadgets return `nil` implicitly at EOF, so don't do "if not err"
 		return nil -- gadget asked for a quiet death
+	end
+
+	if gadget.GetInfo and (Platform and not Platform.check(gadget.GetInfo().depends)) then
+		Spring.Echo('Missing capabilities:  ' .. gadget:GetInfo().name .. '. Disabling.')
+		return nil
 	end
 
 	-- raw access to gadgetHandler
@@ -1662,13 +1670,20 @@ function gadgetHandler:TerraformComplete(unitID, unitDefID, unitTeam,
 end
 
 function gadgetHandler:AllowWeaponTargetCheck(attackerID, attackerWeaponNum, attackerWeaponDefID)
-	for _, g in ipairs(self.AllowWeaponTargetCheckList) do
-		if not g:AllowWeaponTargetCheck(attackerID, attackerWeaponNum, attackerWeaponDefID) then
-			return false
+local ignore = true
+for _, g in ipairs(self.AllowWeaponTargetCheckList) do
+	local allowCheck, ignoreCheck = g:AllowWeaponTargetCheck(attackerID, attackerWeaponNum, attackerWeaponDefID)
+	if not ignoreCheck then
+		ignore = false
+		if not allowCheck then
+			return 0
 		end
 	end
-	return true
 end
+
+return ((ignore and -1) or 1)
+end
+
 
 function gadgetHandler:AllowWeaponTarget(attackerID, targetID, attackerWeaponNum, attackerWeaponDefID, defPriority)
 	local allowed = true
@@ -1747,12 +1762,12 @@ function gadgetHandler:UnitStunned(unitID, unitDefID, unitTeam, stunned)
 	return
 end
 
-function gadgetHandler:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam)
+function gadgetHandler:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam, weaponDefID)
 	tracy.ZoneBeginN("G:UnitDestroyed")
 	gadgetHandler:MetaUnitRemoved(unitID, unitDefID, unitTeam)
 
 	for _, g in ipairs(self.UnitDestroyedList) do
-		g:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam)
+		g:UnitDestroyed(unitID, unitDefID, unitTeam, attackerID, attackerDefID, attackerTeam, weaponDefID)
 	end
 	tracy.ZoneEnd()
 	return
@@ -2137,6 +2152,12 @@ function gadgetHandler:DefaultCommand(type, id, cmd)
 	return
 end
 
+function gadgetHandler:ActiveCommandChanged(id, cmdType)
+	for _, g in ipairs(self.ActiveCommandChangedList) do
+		g:ActiveCommandChanged(id, cmdType)
+	end
+end
+
 function gadgetHandler:CommandNotify(id, params, options)
 	for _, g in ipairs(self.CommandNotifyList) do
 		if g:CommandNotify(id, params, options) then
@@ -2408,6 +2429,18 @@ function gadgetHandler:Load(zip)
 	for _, g in ipairs(self.LoadList) do
 		g:Load(zip)
 	end
+	return
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+function gadgetHandler:FontsChanged()
+	tracy.ZoneBeginN("FontsChanged")
+	for _, w in r_ipairs(self.FontsChangedList) do
+		w:FontsChanged()
+	end
+	tracy.ZoneEnd()
 	return
 end
 
